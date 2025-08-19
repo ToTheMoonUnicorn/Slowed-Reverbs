@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Slowed + Reverb — PWA</title>
+
+  <!-- PWA bits -->
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#0f1115">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Slowed + Reverb">
+  <link rel="apple-touch-icon" href="icon-512.png">
+
+  <style>
+    :root { --radius:12px; --pad:14px; }
+    * { box-sizing:border-box; font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif; }
+    body { margin:0; background:#0f1115; color:#e8e8ea; display:flex; min-height:100vh; }
+    .wrap { margin:auto; width:min(900px,92vw); }
+    .card { background:#141823; border:1px solid #242a38; border-radius:var(--radius); padding: clamp(14px, 3vw, 22px); }
+    h1 { font-size: clamp(22px, 4vw, 30px); margin:0 0 4px; }
+    p.sub { margin:.25rem 0 1rem; color:#a9afc6; }
+    .drop {
+      border:2px dashed #2e3750; border-radius:var(--radius); padding:28px; text-align:center;
+      background: #111522; transition:.2s border-color,.2s background;
+    }
+    .drop.drag { border-color:#7aa2ff; background:#121a2e; }
+    .drop input { display:none; }
+    .btn { cursor:pointer; border:1px solid #2d3550; background:#1a2030; color:#e8e8ea;
+      padding:10px 14px; border-radius:10px; font-weight:600; }
+    .btn:disabled { opacity:.5; cursor:not-allowed; }
+    .row { display:flex; gap:14px; flex-wrap:wrap; align-items:center; }
+    .grow { flex:1 1 auto; }
+    .controls { display:grid; grid-template-columns:1fr; gap:12px; margin-top:14px; }
+    @media (min-width:720px){ .controls{ grid-template-columns:1fr 1fr; } }
+    .ctrl { background:#111626; border:1px solid #242a38; border-radius:10px; padding:12px; }
+    .ctrl label { display:flex; justify-content:space-between; font-size:14px; color:#c7ccdf; }
+    .ctrl input[type=range]{ width:100%; }
+    .meta { font-size:12px; color:#9aa3bf; margin-top:8px; }
+    .footer { display:flex; gap:10px; margin-top:14px; flex-wrap:wrap; }
+    .pill { background:#101420; border:1px solid #1f2942; padding:6px 10px; border-radius:999px; font-size:12px; color:#9aa3bf; }
+    audio { width:100%; margin-top:10px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>Slowed + Reverb</h1>
+      <p class="sub">Charge un fichier audio, règle la vitesse et la reverb, écoute l’aperçu et exporte en WAV — tout se fait en local, et cette version est installable (PWA).</p>
+
+      <div id="drop" class="drop">
+        <p><strong>Dépose ton audio ici</strong> (ou clique)</p>
+        <p class="meta">Formats testés : MP3, WAV, M4A, OGG, FLAC (selon le navigateur).</p>
+        <input id="file" type="file" accept="audio/*" />
+      </div>
+
+      <div class="controls">
+        <div class="ctrl">
+          <label>Vitesse (slowed)
+            <span><span id="speedVal">0.80</span>x</span>
+          </label>
+          <input id="speed" type="range" min="0.40" max="1.00" step="0.01" value="0.80" />
+          <div class="meta">Plus bas = plus lent (et pitch plus grave, comme dans les edits “slowed”).</div>
+        </div>
+
+        <div class="ctrl">
+          <label>Reverb — mix
+            <span><span id="mixVal">35</span>%</span>
+          </label>
+          <input id="mix" type="range" min="0" max="100" step="1" value="35" />
+          <div class="meta">0% = son sec, 100% = full reverb.</div>
+        </div>
+
+        <div class="ctrl">
+          <label>Reverb — taille/decay
+            <span><span id="decayVal">2.5</span>s</span>
+          </label>
+          <input id="decay" type="range" min="0.3" max="6" step="0.1" value="2.5" />
+          <div class="meta">Durée d’extinction de la réverb (impulsion synthétique).</div>
+        </div>
+
+        <div class="ctrl">
+          <label>Pré-delay
+            <span><span id="predelayVal">0</span> ms</span>
+          </label>
+          <input id="predelay" type="range" min="0" max="120" step="1" value="0" />
+          <div class="meta">Décale l’entrée dans la reverb (petit écho avant la salle).</div>
+        </div>
+      </div>
+
+      <div class="footer">
+        <button id="preview" class="btn" disabled>▶️ Aperçu</button>
+        <button id="stop" class="btn" disabled>⏹️ Stop</button>
+        <button id="export" class="btn" disabled>💾 Export WAV</button>
+        <span id="status" class="pill">Aucun fichier chargé</span>
+      </div>
+
+      <audio id="player" controls hidden></audio>
+    </div>
+  </div>
+
+  <script>
+    // ---------- Helpers ----------
+    const $ = sel => document.querySelector(sel);
+    const drop = $('#drop'), fileInput = $('#file');
+    const speed = $('#speed'), speedVal = $('#speedVal');
+    const mix = $('#mix'), mixVal = $('#mixVal');
+    const decay = $('#decay'), decayVal = $('#decayVal');
+    const predelay = $('#predelay'), predelayVal = $('#predelayVal');
+    const previewBtn = $('#preview'), stopBtn = $('#stop'), exportBtn = $('#export');
+    const status = $('#status'), player = $('#player');
+
+    let audioCtx, buffer, playingNodes = [];
+    let objectUrl;
+
+    function fmtTime(s){ const m = Math.floor(s/60); const ss = Math.round(s%60).toString().padStart(2,'0'); return `${m}:${ss}`; }
+
+    // Update labels live
+    speed.addEventListener('input', () => speedVal.textContent = (+speed.value).toFixed(2));
+    mix.addEventListener('input', () => mixVal.textContent = mix.value);
+    decay.addEventListener('input', () => decayVal.textContent = (+decay.value).toFixed(1));
+    predelay.addEventListener('input', () => predelayVal.textContent = predelay.value);
+
+    // Drag & drop
+    drop.addEventListener('click', () => fileInput.click());
+    ;['dragenter','dragover'].forEach(eName => drop.addEventListener(eName, e => { e.preventDefault(); e.dataTransfer.dropEffect='copy'; drop.classList.add('drag'); }));
+    ;['dragleave','drop'].forEach(eName => drop.addEventListener(eName, e => { e.preventDefault(); drop.classList.remove('drag'); }));
+    drop.addEventListener('drop', e => { const f = e.dataTransfer.files?.[0]; if (f) loadFile(f); });
+    fileInput.addEventListener('change', e => { const f=e.target.files?.[0]; if (f) loadFile(f); });
+
+    async function loadFile(file){
+      try{
+        status.textContent = 'Décodage…';
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 44100 });
+        const arrBuf = await file.arrayBuffer();
+        buffer = await audioCtx.decodeAudioData(arrBuf);
+        status.textContent = `Chargé: ${file.name} • ${buffer.numberOfChannels} canaux • ${fmtTime(buffer.duration)} `;
+        previewBtn.disabled = false; exportBtn.disabled = false; stopBtn.disabled = true;
+        player.hidden = true;
+      }catch(err){
+        console.error(err);
+        status.textContent = 'Erreur de décodage du fichier.';
+      }
+    }
+
+    function makeReverbIR(ctx, durationSec=2.5, decay=2.5, preDelayMs=0){
+      // Impulsion bruitée exponentiellement décroissante (stéréo)
+      const rate = ctx.sampleRate;
+      const length = Math.max(1, Math.floor(durationSec * rate));
+      const ir = ctx.createBuffer(2, length + Math.floor(preDelayMs/1000*rate), rate);
+
+      // Pré-délai = zéros au début
+      const offset = Math.floor(preDelayMs/1000*rate);
+      for (let ch=0; ch<2; ch++){
+        const data = ir.getChannelData(ch);
+        for (let i=0; i<offset; i++) data[i] = 0;
+        for (let i=offset; i<data.length; i++){
+          // Bruit blanc * enveloppe exponentielle
+          const t = (i-offset) / rate;
+          const env = Math.pow(1 - (t / durationSec), decay);
+          data[i] = (Math.random()*2-1) * env * 0.5; // 0.5 pour éviter de clipper
+        }
+      }
+      return ir;
+    }
+
+    function connectGraph(ctx, srcBuf, opts){
+      const { playbackRate=0.8, mix=0.35, decay=2.5, predelayMs=0, destination } = opts;
+
+      const source = ctx.createBufferSource();
+      source.buffer = srcBuf;
+      source.playbackRate.value = playbackRate;
+
+      const convolver = ctx.createConvolver();
+      convolver.buffer = makeReverbIR(ctx, Math.max(decay, 0.3), decay, predelayMs);
+
+      const dry = ctx.createGain();
+      const wet = ctx.createGain();
+      dry.gain.value = 1 - mix;
+      wet.gain.value = mix;
+
+      source.connect(dry);
+      source.connect(convolver);
+      convolver.connect(wet);
+
+      // Compresseur léger pour éviter les crêtes
+      const comp = ctx.createDynamicsCompressor();
+      comp.threshold.value = -10;
+      comp.knee.value = 15;
+      comp.ratio.value = 2;
+      comp.attack.value = 0.003;
+      comp.release.value = 0.25;
+
+      dry.connect(comp);
+      wet.connect(comp);
+      comp.connect(destination || ctx.destination);
+
+      return { source, comp };
+    }
+
+    function stopPreview(){
+      playingNodes.forEach(n => { try{ n.stop(); }catch{} });
+      playingNodes = [];
+      stopBtn.disabled = true;
+    }
+
+    previewBtn.addEventListener('click', async () => {
+      if (!buffer) return;
+      stopPreview();
+      if (audioCtx.state === 'suspended') await audioCtx.resume();
+
+      const pr = +speed.value;
+      const mx = +mix.value / 100;
+      const dc = +decay.value;
+      const pd = +predelay.value;
+
+      const { source } = connectGraph(audioCtx, buffer, {
+        playbackRate: pr, mix: mx, decay: dc, predelayMs: pd
+      });
+
+      source.onended = () => { stopBtn.disabled = true; };
+      source.start(0);
+      playingNodes.push(source);
+      stopBtn.disabled = false;
+      status.textContent = `Lecture aperçu • vitesse ${pr.toFixed(2)}x • mix ${Math.round(mx*100)}% • decay ${dc.toFixed(1)}s`;
+    });
+
+    stopBtn.addEventListener('click', stopPreview);
+
+    exportBtn.addEventListener('click', async () => {
+      if (!buffer) return;
+      stopPreview();
+      status.textContent = 'Rendu hors-ligne… (WAV)';
+
+      const pr = +speed.value;
+      const mx = +mix.value / 100;
+      const dc = +decay.value;
+      const pd = +predelay.value;
+
+      // Durée sortie ≈ durée entrée / vitesse + marge reverb
+      const outDuration = buffer.duration / pr + Math.min(6, dc + 0.5);
+      const sampleRate = 44100;
+      const length = Math.ceil(outDuration * sampleRate);
+
+      const offline = new OfflineAudioContext(2, length, sampleRate);
+      const { source } = connectGraph(offline, buffer, {
+        playbackRate: pr, mix: mx, decay: dc, predelayMs: pd, destination: offline.destination
+      });
+
+      source.start(0);
+      const rendered = await offline.startRendering();
+
+      // Convertir AudioBuffer -> WAV (16-bit PCM)
+      function audioBufferToWav(ab){
+        const numCh = ab.numberOfChannels;
+        const sr = ab.sampleRate;
+        const len = ab.length * numCh * 2 + 44;
+        const buf = new ArrayBuffer(len);
+        const view = new DataView(buf);
+
+        function writeStr(off, str){ for (let i=0;i<str.length;i++) view.setUint8(off+i, str.charCodeAt(i)); }
+        let offset = 0;
+        writeStr(offset, 'RIFF'); offset += 4;
+        view.setUint32(offset, len - 8, true); offset += 4;
+        writeStr(offset, 'WAVE'); offset += 4;
+        writeStr(offset, 'fmt '); offset += 4;
+        view.setUint32(offset, 16, true); offset += 4; // PCM subchunk size
+        view.setUint16(offset, 1, true); offset += 2;  // PCM format
+        view.setUint16(offset, numCh, true); offset += 2;
+        view.setUint32(offset, sr, true); offset += 4;
+        view.setUint32(offset, sr * numCh * 2, true); offset += 4;
+        view.setUint16(offset, numCh * 2, true); offset += 2;
+        view.setUint16(offset, 16, true); offset += 2;
+        writeStr(offset, 'data'); offset += 4;
+        view.setUint32(offset, ab.length * numCh * 2, true); offset += 4;
+
+        // interleave
+        const channels = [];
+        for (let ch=0; ch<numCh; ch++) channels.push(ab.getChannelData(ch));
+        let idx = 0;
+        for (let i=0; i<ab.length; i++){
+          for (let ch=0; ch<numCh; ch++){
+            let s = Math.max(-1, Math.min(1, channels[ch][i]));
+            view.setInt16(44 + idx, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+            idx += 2;
+          }
+        }
+        return new Blob([view], { type: 'audio/wav' });
+      }
+
+      const blob = audioBufferToWav(rendered);
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      objectUrl = URL.createObjectURL(blob);
+
+      player.src = objectUrl;
+      player.hidden = false;
+
+      // Propose le téléchargement
+      const a = document.createElement('a');
+      a.href = objectUrl;
+      a.download = 'slowed-reverb.wav';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+
+      status.textContent = `Export terminé • durée ${fmtTime(rendered.duration)} • WAV 44.1 kHz`;
+    });
+
+    // ----- Register Service Worker for PWA -----
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js')
+          .then(() => console.log("Service Worker prêt ✅"))
+          .catch(err => console.error("SW erreur", err));
+      });
+    }
+  </script>
+</body>
+</html>
