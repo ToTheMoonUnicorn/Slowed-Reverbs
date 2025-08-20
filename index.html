@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="fr">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -8,33 +8,28 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <h1>🎧 Unilab</h1>
-  <p>Charge un fichier audio, règle la vitesse, la reverb, et teste le mode reverse.</p>
+  <h1>🎧 Unilab - Slowed + Reverb + Speed + Reverse</h1>
 
-  <input type="file" id="fileInput" accept="audio/*"><br><br>
+  <!-- Upload Audio -->
+  <div class="upload-section">
+    <label for="fileInput" class="upload-label">🎵 Choisir un fichier audio</label>
+    <input type="file" id="fileInput" accept=".mp3,.wav,.m4a,.ogg,.flac,.aac,audio/*">
+    <p id="fileName">Aucun fichier choisi</p>
+  </div>
 
-  <label for="speed">Speed</label>
-  <input id="speed" type="range" min="0.5" max="2.0" step="0.1" value="1">
-  <span id="speed-value">1.0x</span><br><br>
+  <!-- Player -->
+  <audio id="audio" controls></audio>
 
-  <label for="mix">Reverb Mix</label>
-  <input id="mix" type="range" min="0" max="1" step="0.05" value="0.3">
-  <span id="mix-value">30%</span><br><br>
+  <!-- Effets -->
+  <div class="controls">
+    <label>Vitesse : <input type="range" id="speedControl" min="0.5" max="2" step="0.1" value="1"></label>
+    <label>Reverb : <input type="range" id="reverbControl" min="0" max="1" step="0.1" value="0.5"></label>
+    <label>Slowed : <input type="checkbox" id="slowedToggle"></label>
+    <label>Reverse : <input type="checkbox" id="reverseToggle"></label>
+  </div>
 
-  <label for="decay">Decay</label>
-  <input id="decay" type="range" min="0.1" max="5" step="0.1" value="2.5">
-  <span id="decay-value">2.5s</span><br><br>
+  <button id="downloadBtn">⬇️ Télécharger le résultat</button>
 
-  <label for="predelay">Pre-delay</label>
-  <input id="predelay" type="range" min="0" max="0.5" step="0.01" value="0">
-  <span id="predelay-value">0ms</span><br><br>
-
-  <button id="reverseBtn">Reverse: OFF</button><br><br>
-
-  <button id="playBtn">▶️ Play</button>
-  <button id="stopBtn">⏹️ Stop</button>
-  <button id="exportBtn">💾 Export WAV</button>
-
-  <script src="script.js"></script>
+  <script src="app.js"></script>
 </body>
 </html>
