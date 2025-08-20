@@ -1,4 +1,4 @@
-const CACHE_NAME = "unilab-v1";
+const CACHE_NAME = "unilab-v2";
 const urlsToCache = [
   "/",
   "/index.html",
