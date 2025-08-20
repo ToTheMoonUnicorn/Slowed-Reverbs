@@ -1,0 +1,31 @@
+body {
+  background: linear-gradient(135deg, #000000, #1a1a1a);
+  font-family: 'Poppins', sans-serif;
+  color: #f5f5f5;
+  text-align: center;
+  padding: 20px;
+}
+
+h1 {
+  color: #d4af37;
+}
+
+button {
+  background: rgba(255, 215, 0, 0.1);
+  border: 1px solid #d4af37;
+  border-radius: 12px;
+  padding: 12px 24px;
+  margin: 8px;
+  color: #f5f5f5;
+  font-weight: 600;
+  backdrop-filter: blur(10px);
+  cursor: pointer;
+  transition: 0.3s;
+}
+button:hover {
+  background: rgba(212, 175, 55, 0.3);
+}
+input[type="range"] {
+  width: 70%;
+  accent-color: #d4af37;
+}
